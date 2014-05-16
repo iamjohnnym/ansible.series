@@ -1,0 +1,57 @@
+---
+
+- name: Ensure dependancies are installed
+  yum: name={{ item }} state=installed
+  with_items:
+    - MySQL-python
+  when: ansible_os_family == 'RedHat'
+
+#- name: Import Repository GPG Key
+#  command: rpm --import http://rpms.famillecollet.com/RPM-GPG-KEY-remi
+#  when: ansible_os_family == 'RedHat'
+
+#- name: Add Repository
+#  command: rpm -ivh http://rpms.famillecollet.com/enterprise/remi-release-6.rpm
+#  when: ansible_os_family == 'RedHat'
+
+- name: Install MySQL 
+  yum: name={{ item }} enablerepo=remi state=installed
+  with_items:
+    - mysql
+    - mysql-server
+  notify: start mysqld
+  when: ansible_os_family == 'RedHat'
+
+- name: Generate MySQL Root Passwd
+  command: openssl rand -base64 14
+  register: mysql_root_pass
+
+- name: Generate MySQL WordPress Passwd
+  command: openssl rand -base64 14
+  register: mysql_wp_pass
+
+- name: Set MySQL root passwd
+  command: /usr/bin/mysqladmin -u root password '{{ mysql_root_pass.stdout }}'
+
+- name: Create .my.cnf file
+  template: src=dotmy.cnf.j2 dest=/root/.my.cnf
+
+- name: Create Database for WordPress
+  mysql_db: name=wp_configure_systems state=present
+
+- name: Create Database user for WordPress 
+  mysql_user: name=wp_cs_user password='{{ mysql_wp_pass.stdout }}' priv=wp_configure_systems.*:ALL state=present
+ 
+- name: Add tmp directory
+  file: path=/var/lib/mysqltmp owner=mysql group=mysql state=directory
+
+- name: Add my.cnf template
+  template: src=my.cnf.j2 dest=/etc/my.cnf
+  when: ansible_os_family == 'RedHat'
+
+- name: Remove existing InnoDB log files
+  file: path=/var/lib/mysql/{{ item }} state=absent
+  with_items:
+  - ib_logfile0
+  - ib_logfile1
+  notify: restart mysqld
